@@ -1,0 +1,25 @@
+{
+  "findings": [
+    {
+      "title": "MFA Gap",
+      "description": "No MFA on admin portal",
+      "severity": "high",
+      "category": "identity",
+      "source": "vendor-a"
+    },
+    {
+      "title": "Open S3 Bucket",
+      "description": "Public bucket detected",
+      "severity": "critical",
+      "category": "cloud",
+      "source": "vendor-a"
+    },
+    {
+      "title": "Missing Logging",
+      "description": "CloudTrail disabled",
+      "severity": "medium",
+      "category": "logging",
+      "source": "vendor-b"
+    }
+  ]
+}

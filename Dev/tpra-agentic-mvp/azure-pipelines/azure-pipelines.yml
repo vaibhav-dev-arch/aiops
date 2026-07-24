@@ -1,0 +1,65 @@
+trigger:
+  - main
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: Test
+    jobs:
+      - job: Pytest
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.12"
+          - script: |
+              cd backend
+              python -m pip install -r requirements-dev.txt
+              pytest
+            displayName: Run backend tests
+
+  - stage: Build
+    dependsOn: Test
+    jobs:
+      - job: Docker
+        steps:
+          - script: |
+              docker build -t tpra-api:ci ./backend
+              docker build -t tpra-ui:ci ./frontend
+            displayName: Build images
+
+  - stage: DeployDev
+    dependsOn: Build
+    jobs:
+      - deployment: Dev
+        environment: dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: echo "Deploy DEV (configure service connection)"
+                  displayName: Deploy DEV stub
+
+  - stage: DeployQA
+    dependsOn: DeployDev
+    jobs:
+      - deployment: QA
+        environment: qa
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: echo "Deploy QA"
+                  displayName: Deploy QA stub
+
+  - stage: DeployUAT
+    dependsOn: DeployQA
+    jobs:
+      - deployment: UAT
+        environment: uat
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: echo "Deploy UAT"
+                  displayName: Deploy UAT stub

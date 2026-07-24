@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "dev" },
+    "storageAccountName": { "value": "tpradevstg001" },
+    "cosmosAccountName": { "value": "tpradevcosmos001" },
+    "location": { "value": "eastus" }
+  }
+}

@@ -1,0 +1,4 @@
+title,description,severity,category,source
+MFA Gap,No MFA on admin portal,high,identity,vendor-a
+Open S3 Bucket,Public bucket detected,critical,cloud,vendor-a
+Missing Logging,CloudTrail disabled,medium,logging,vendor-b

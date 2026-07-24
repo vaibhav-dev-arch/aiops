@@ -1,0 +1,25 @@
+agents:
+  - id: uc1_structured_findings
+    name: Structured Findings Package Agent
+    description: Ingest vendor findings, normalize, validate, and package outputs.
+    capabilities:
+      - parse
+      - normalize
+      - validate
+      - package
+    required_inputs:
+      - findings_file
+    model: mock-local
+    prompt_dir: prompts/structured_findings/v1
+
+  - id: uc2_draft_report
+    name: Draft TPRA Report Generation Agent
+    description: Generate a draft TPRA Word report from approved findings.
+    capabilities:
+      - template_map
+      - llm_narrative
+      - docx
+    required_inputs:
+      - approved_findings_package
+    model: mock-local
+    prompt_dir: prompts/draft_report/v1

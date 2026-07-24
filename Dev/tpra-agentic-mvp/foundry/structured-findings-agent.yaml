@@ -1,0 +1,6 @@
+name: structured-findings-agent
+model: gpt-4o
+temperature: 0.1
+max_tokens: 4000
+tools: []
+prompt_ref: prompts/structured_findings/v1

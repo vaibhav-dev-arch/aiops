@@ -1,0 +1,30 @@
+services:
+  api:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      TPRA_ENV: local
+      STORAGE_PROVIDER: local
+      METADATA_PROVIDER: sqlite
+      LLM_PROVIDER: mock
+      AUTH_PROVIDER: dev
+      DOC_INTEL_PROVIDER: local
+      TPRA_DATA_DIR: /app/.data
+      TPRA_CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+    volumes:
+      - tpra-data:/app/.data
+      - ./prompts:/app/prompts:ro
+      - ./foundry:/app/foundry:ro
+
+  ui:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  tpra-data:

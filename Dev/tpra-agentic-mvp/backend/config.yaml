@@ -1,0 +1,32 @@
+environment: local
+data_dir: .data
+cors_origins:
+  - http://localhost:5173
+  - http://127.0.0.1:5173
+  - http://localhost:3000
+
+providers:
+  storage: local
+  metadata: sqlite
+  llm: mock
+  auth: dev
+  document_intelligence: local
+
+local:
+  storage_root: .data/files
+  sqlite_path: .data/tpra.db
+
+azure:
+  storage_connection_string: ""
+  cosmos_endpoint: ""
+  cosmos_key: ""
+  cosmos_database: tpra
+  openai_endpoint: ""
+  openai_api_key: ""
+  openai_deployment: gpt-4o
+  doc_intel_endpoint: ""
+  doc_intel_key: ""
+
+observability:
+  log_level: INFO
+  json_logs: true
