@@ -48,6 +48,15 @@ source .venv/bin/activate
 pytest
 ```
 
+## Learn the project deeply (NotebookLM)
+
+Upload this source into [NotebookLM](https://notebooklm.google.com/):
+
+- `docs/NOTEBOOKLM_TPRA_Deep_Dive.md` (recommended)
+- `docs/NOTEBOOKLM_TPRA_Deep_Dive.txt` (same content, plain text)
+
+It covers business context, UC1/UC2 flows, architecture layers, providers, APIs, frontend, security, glossary, and study questions.
+
 ## Repository layout
 
 - `backend/` — FastAPI API, agents, providers

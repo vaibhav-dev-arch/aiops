@@ -1,0 +1,1092 @@
+<!doctype html>
+<html><head><meta charset="utf-8"/><title>TPRA NotebookLM Deep Dive</title>
+<style>
+body{font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;line-height:1.55;max-width:920px;margin:0 auto;padding:24px}
+h1,h2,h3{color:#1e3a8a} h1{border-bottom:3px solid #1d4ed8;padding-bottom:.3rem}
+h2{margin-top:2rem;border-bottom:1px solid #cbd5e1;padding-bottom:.2rem}
+code,pre{background:#f1f5f9} pre{padding:12px;overflow-x:auto;border-radius:8px}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+th,td{border:1px solid #cbd5e1;padding:8px;text-align:left;vertical-align:top}
+th{background:#e2e8f0}
+</style></head><body><h1 id="client-cybersecurity-tpra-agentic-mvp-complete-deep-dive-guide">Client Cybersecurity TPRA Agentic MVP — Complete Deep Dive Guide</h1>
+<p><strong>Document purpose:</strong> This is a NotebookLM-ready master source. Upload this file into NotebookLM to ask questions, generate study guides, briefings, FAQs, and audio overviews about the project.</p>
+<p><strong>Project path:</strong> <code>Dev/tpra-agentic-mvp</code> (also linked from <code>/Dev/tpra-agentic-mvp</code>)<br />
+<strong>Audience:</strong> Engineers, architects, reviewers, and stakeholders who need a clear and deep understanding of the system.<br />
+<strong>Status:</strong> Agentic MVP scaffold with working local mock providers and end-to-end UC1 → UC2 pipeline.</p>
+<hr />
+<h2 id="1-executive-summary">1. Executive Summary</h2>
+<p>This project is a <strong>human-in-the-loop agentic platform</strong> for a client’s <strong>Third Party Risk Assessment (TPRA)</strong> process.</p>
+<p>In plain language:</p>
+<ul>
+<li>Security teams receive raw vendor security findings in messy formats (Excel, CSV, JSON, Word).</li>
+<li>Those findings must be cleaned, standardized, validated, reviewed by humans, and then turned into a formal TPRA report.</li>
+<li>This platform uses two AI agents to accelerate that work while keeping humans in control of approvals.</li>
+</ul>
+<p>The two agents are:</p>
+<ol>
+<li>
+<p><strong>UC1 — Structured Findings Package Agent</strong><br />
+   Takes raw findings → normalizes them → validates them → creates a structured package and exception report.</p>
+</li>
+<li>
+<p><strong>UC2 — Draft TPRA Report Generation Agent</strong><br />
+   Takes approved findings → maps them into report sections → uses an LLM to draft narrative text → produces a Word (DOCX) draft for human review.</p>
+</li>
+</ol>
+<p>The core design philosophy is <strong>“build once, run anywhere.”</strong><br />
+The same application code can run:</p>
+<ul>
+<li><strong>Locally</strong> for Development Team work (filesystem, SQLite, mock LLM, header-based auth), or</li>
+<li><strong>On Azure / Client DaVinci</strong> (Blob Storage, Cosmos DB, Azure OpenAI / AI Foundry, Client SSO).</li>
+</ul>
+<p>Infrastructure differences are hidden behind a <strong>Provider Registry</strong>. Changing environments is primarily a configuration change, not a rewrite.</p>
+<hr />
+<h2 id="2-why-this-project-exists-business-context">2. Why This Project Exists (Business Context)</h2>
+<h3 id="21-what-is-tpra">2.1 What is TPRA?</h3>
+<p><strong>Third Party Risk Assessment (TPRA)</strong> is the process of evaluating the cybersecurity posture of vendors, suppliers, and other external parties. Organizations use TPRA to decide whether a vendor is safe enough to do business with, what risks remain, and what remediation is required.</p>
+<p>Typical TPRA inputs include:</p>
+<ul>
+<li>Vendor questionnaires</li>
+<li>Security assessment findings</li>
+<li>Pen-test or scanning outputs</li>
+<li>Policy/control evidence</li>
+<li>Exception lists and open issues</li>
+</ul>
+<p>Typical TPRA outputs include:</p>
+<ul>
+<li>A cleaned, structured findings inventory</li>
+<li>Exception / gap tracking</li>
+<li>Reviewer decisions (approve / reject / escalate)</li>
+<li>A narrative assessment report for risk committees, auditors, or client stakeholders</li>
+</ul>
+<h3 id="22-pain-points-this-mvp-addresses">2.2 Pain points this MVP addresses</h3>
+<p>Without automation, TPRA teams often struggle with:</p>
+<ul>
+<li>Inconsistent finding formats from different vendors</li>
+<li>Manual copy/paste into report templates</li>
+<li>Missing required fields that are discovered late</li>
+<li>Weak audit trails of who approved what</li>
+<li>Slow draft report writing</li>
+</ul>
+<p>This MVP targets the highest-friction steps:</p>
+<ol>
+<li>Normalize and validate findings (UC1)</li>
+<li>Human review checkpoint</li>
+<li>Draft the report narrative and Word document (UC2)</li>
+</ol>
+<h3 id="23-human-in-the-loop-principle">2.3 Human-in-the-loop principle</h3>
+<p>This is intentionally <strong>not</strong> a fully autonomous black box.</p>
+<ul>
+<li>Agents prepare structured work products.</li>
+<li>Humans review findings between UC1 and UC2.</li>
+<li>Humans remain accountable for final report quality.</li>
+<li>Every important action is written to an audit trail.</li>
+</ul>
+<p>That balance is critical for regulated cybersecurity workflows.</p>
+<hr />
+<h2 id="3-product-scope-of-the-mvp">3. Product Scope of the MVP</h2>
+<h3 id="in-scope">In scope</h3>
+<ul>
+<li>Workspace management for one TPRA engagement at a time</li>
+<li>File upload/download for findings and generated outputs</li>
+<li>UC1 agent execution</li>
+<li>Reviewer decisions on findings</li>
+<li>UC2 draft report generation</li>
+<li>Audit event history</li>
+<li>Local development mode with mock providers</li>
+<li>Azure-ready provider interfaces and deployment scaffolding</li>
+</ul>
+<h3 id="out-of-scope-future-enhancements-typical">Out of scope / future enhancements (typical)</h3>
+<ul>
+<li>Full production SSO hardening and entitlement sync</li>
+<li>Complex multi-approver workflow engines</li>
+<li>Advanced RAG over historical TPRA corpora</li>
+<li>Fully automated remediation tracking</li>
+<li>Multi-tenant SaaS packaging beyond client deployment</li>
+</ul>
+<hr />
+<h2 id="4-high-level-system-architecture">4. High-Level System Architecture</h2>
+<h3 id="41-architecture-diagram-conceptual">4.1 Architecture diagram (conceptual)</h3>
+<pre><code class="language-text">┌──────────────────────────────────────────────────────────┐
+│                 Client TPRA Agentic MVP                  │
+│                                                          │
+│   React UI (Vite + TypeScript)                           │
+│            │                                             │
+│            │  HTTP /api                                  │
+│            ▼                                             │
+│   FastAPI Backend                                        │
+│     ├── UC1 Agent (Structured Findings)                  │
+│     ├── UC2 Agent (Draft Report)                         │
+│     ├── Services (workspace, files, agents, reviewer)    │
+│     ├── Repositories (metadata access)                   │
+│     └── Provider Registry                                │
+│           ├── Storage                                    │
+│           ├── Metadata                                   │
+│           ├── LLM                                        │
+│           ├── Auth                                       │
+│           └── Document Intelligence                      │
+│                                                          │
+│   LOCAL (Dev Team)              AZURE (Client DaVinci)   │
+│   - Filesystem                  - Blob Storage           │
+│   - SQLite                      - Cosmos DB              │
+│   - Mock LLM                    - OpenAI / Foundry       │
+│   - Dev Auth headers            - Client SSO             │
+└──────────────────────────────────────────────────────────┘
+</code></pre>
+<h3 id="42-clean-architecture-layers">4.2 Clean architecture layers</h3>
+<p>The backend is organized so business logic does not depend on Azure SDKs directly.</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Folder</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API</td>
+<td><code>backend/app/api</code></td>
+<td>HTTP routes, request validation, dependency injection</td>
+</tr>
+<tr>
+<td>Schemas</td>
+<td><code>backend/app/schemas</code></td>
+<td>Pydantic request/response contracts</td>
+</tr>
+<tr>
+<td>Services</td>
+<td><code>backend/app/services</code></td>
+<td>Orchestration, authorization, business workflows</td>
+</tr>
+<tr>
+<td>Agents</td>
+<td><code>backend/app/agents</code></td>
+<td>UC1/UC2 step graphs and domain-specific agent logic</td>
+</tr>
+<tr>
+<td>Domain</td>
+<td><code>backend/app/domain</code></td>
+<td>Canonical models, enums, validation rules</td>
+</tr>
+<tr>
+<td>Repositories</td>
+<td><code>backend/app/repositories</code></td>
+<td>Persist/retrieve domain objects via metadata provider</td>
+</tr>
+<tr>
+<td>Providers</td>
+<td><code>backend/app/providers</code></td>
+<td>Infrastructure adapters (local + Azure)</td>
+</tr>
+<tr>
+<td>Core</td>
+<td><code>backend/app/core</code></td>
+<td>Config, logging, exceptions</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-why-this-layering-matters">4.3 Why this layering matters</h3>
+<ul>
+<li>You can unit-test normalizers/validators without Azure.</li>
+<li>You can swap SQLite for Cosmos without rewriting agents.</li>
+<li>You can run demos offline with a mock LLM.</li>
+<li>API contracts stay stable while internals evolve.</li>
+</ul>
+<hr />
+<h2 id="5-end-to-end-business-flow">5. End-to-End Business Flow</h2>
+<p>This is the most important mental model for the system.</p>
+<h3 id="step-a-create-a-workspace">Step A — Create a workspace</h3>
+<p>A <strong>workspace</strong> represents one TPRA engagement (for example, “Vendor ACME — Q3 assessment”).</p>
+<p>All files, agent runs, reviewer decisions, and audit events are scoped to that workspace.</p>
+<h3 id="step-b-upload-raw-findings">Step B — Upload raw findings</h3>
+<p>An analyst uploads one or more source files:</p>
+<ul>
+<li><code>.xlsx</code> / <code>.xls</code></li>
+<li><code>.csv</code></li>
+<li><code>.json</code></li>
+<li><code>.docx</code></li>
+</ul>
+<p>These are stored through the Storage provider. Metadata about each file is stored through the Metadata provider.</p>
+<h3 id="step-c-run-uc1">Step C — Run UC1</h3>
+<p>UC1 reads the uploaded files and produces:</p>
+<ul>
+<li>Structured findings package (normalized inventory)</li>
+<li>Exception report (missing/invalid fields)</li>
+<li>Reviewer log template / reviewer-ready output</li>
+</ul>
+<h3 id="step-d-human-review">Step D — Human review</h3>
+<p>Reviewers inspect findings and record decisions:</p>
+<ul>
+<li>Approve</li>
+<li>Reject</li>
+<li>Optionally comment</li>
+</ul>
+<p>Only authorized roles (reviewer/admin) can record decisions.</p>
+<h3 id="step-e-run-uc2">Step E — Run UC2</h3>
+<p>UC2 consumes the approved findings package and produces:</p>
+<ul>
+<li>Draft TPRA Word report (<code>.docx</code>)</li>
+<li>Missing-input report (if needed)</li>
+<li>Summary artifacts for review</li>
+</ul>
+<h3 id="step-f-human-finalization">Step F — Human finalization</h3>
+<p>A human edits/approves the Word draft outside or inside the platform workflow. The system’s job in the MVP is to produce a high-quality first draft quickly and transparently.</p>
+<h3 id="step-g-auditability">Step G — Auditability</h3>
+<p>Every meaningful action (workspace create, file upload, agent start/success/fail, reviewer decision) is recorded as an immutable audit event.</p>
+<hr />
+<h2 id="6-agent-deep-dive-uc1-structured-findings-package-agent">6. Agent Deep Dive — UC1 Structured Findings Package Agent</h2>
+<h3 id="61-purpose">6.1 Purpose</h3>
+<p>UC1 converts inconsistent vendor findings into a <strong>canonical TPRA schema</strong>.</p>
+<h3 id="62-agent-identity">6.2 Agent identity</h3>
+<ul>
+<li><strong>ID:</strong> <code>uc1_structured_findings</code></li>
+<li><strong>Name:</strong> Structured Findings Package Agent</li>
+<li><strong>Required input:</strong> at least one findings file</li>
+<li><strong>Prompt directory:</strong> <code>prompts/structured_findings/v1</code></li>
+<li><strong>Registry source:</strong> <code>foundry/agents.yaml</code></li>
+</ul>
+<h3 id="63-uc1-workflow-steps">6.3 UC1 workflow steps</h3>
+<p>UC1 is implemented as a sequential workflow graph. Conceptually:</p>
+<ol>
+<li><strong>Validate inputs</strong> — ensure files exist</li>
+<li><strong>Authorize</strong> — user must have <code>agent:run</code></li>
+<li><strong>Load files</strong> — pull bytes + metadata into state</li>
+<li><strong>Detect types</strong> — csv / json / xlsx / docx / unknown</li>
+<li><strong>Extract content</strong> — parser converts each file into raw row dictionaries</li>
+<li><strong>Normalize</strong> — map vendor field names into canonical Finding fields</li>
+<li><strong>Validate fields</strong> — apply business rules; mark exceptions</li>
+<li><strong>Capture reviewer log readiness</strong></li>
+<li><strong>Build package outputs</strong> — structured package + exception report + reviewer log</li>
+<li><strong>Audit + respond</strong></li>
+</ol>
+<p>If extraction finds zero rows, the workflow can short-circuit as failed.</p>
+<h3 id="64-parsing-strategy">6.4 Parsing strategy</h3>
+<p>Parsers live in <code>backend/app/agents/structured_findings/parsers.py</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON</td>
+<td>Accepts list, or object with <code>findings</code>, or single object</td>
+</tr>
+<tr>
+<td>CSV</td>
+<td>Uses header row as field names</td>
+</tr>
+<tr>
+<td>XLSX</td>
+<td>Uses first sheet, first row as headers</td>
+</tr>
+<tr>
+<td>DOCX</td>
+<td>Extracts paragraph text into a document-style finding</td>
+</tr>
+</tbody>
+</table>
+<p>This makes UC1 resilient to common vendor export formats.</p>
+<h3 id="65-normalization-strategy">6.5 Normalization strategy</h3>
+<p>Normalizer maps many possible column names to canonical fields:</p>
+<ul>
+<li><code>title</code> aliases: title, finding, name, summary</li>
+<li><code>description</code> aliases: description, details, detail, narrative</li>
+<li><code>severity</code> aliases: severity, risk, priority, level</li>
+<li><code>category</code> aliases: category, domain, control_area, type</li>
+<li><code>source</code> aliases: source, vendor, origin</li>
+</ul>
+<p>Each normalized item becomes a <code>Finding</code> domain object with a generated ID.</p>
+<h3 id="66-validation-rules">6.6 Validation rules</h3>
+<p>Validation rules live in domain logic and check things like:</p>
+<ul>
+<li>Required fields present (<code>title</code>, <code>severity</code>, <code>category</code>)</li>
+<li>Severity values belong to an allowed set (critical/high/medium/low/info)</li>
+</ul>
+<p>Invalid findings are not silently dropped. They are flagged as exceptions so humans can remediate.</p>
+<h3 id="67-uc1-outputs">6.7 UC1 outputs</h3>
+<p>Typical outputs:</p>
+<ul>
+<li>Structured findings package (CSV/XLSX)</li>
+<li>Exception report (JSON or spreadsheet-style)</li>
+<li>Reviewer log sheet for decision capture</li>
+</ul>
+<p>These outputs are stored as files in the workspace and referenced by the agent run record.</p>
+<h3 id="68-why-uc1-is-valuable-even-before-generative-ai">6.8 Why UC1 is valuable even before generative AI</h3>
+<p>UC1 is mostly deterministic data engineering + validation. That is intentional:</p>
+<ul>
+<li>High reliability</li>
+<li>Easy testing</li>
+<li>Clear auditability</li>
+<li>Strong foundation before LLM drafting in UC2</li>
+</ul>
+<hr />
+<h2 id="7-agent-deep-dive-uc2-draft-tpra-report-generation-agent">7. Agent Deep Dive — UC2 Draft TPRA Report Generation Agent</h2>
+<h3 id="71-purpose">7.1 Purpose</h3>
+<p>UC2 turns approved structured findings into a readable draft TPRA report.</p>
+<h3 id="72-agent-identity">7.2 Agent identity</h3>
+<ul>
+<li><strong>ID:</strong> <code>uc2_draft_report</code></li>
+<li><strong>Name:</strong> Draft TPRA Report Generation Agent</li>
+<li><strong>Required input:</strong> approved findings package</li>
+<li><strong>Prompt directory:</strong> <code>prompts/draft_report/v1</code></li>
+</ul>
+<h3 id="73-uc2-workflow-steps">7.3 UC2 workflow steps</h3>
+<p>Conceptually:</p>
+<ol>
+<li>Validate + authorize</li>
+<li>Load approved findings package</li>
+<li>Check approvals / usable findings</li>
+<li>Load report template mapping rules</li>
+<li>Map findings into report sections by category</li>
+<li>Invoke LLM with system + user prompts to draft narrative</li>
+<li>Detect missing inputs</li>
+<li>Build DOCX report</li>
+<li>Emit missing-input report + summary</li>
+<li>Audit + respond</li>
+</ol>
+<h3 id="74-template-mapping">7.4 Template mapping</h3>
+<p><code>template_mapper</code> groups findings by category (for example identity, cloud, logging).<br />
+Each category becomes a report section heading with related bullets/findings.</p>
+<h3 id="75-llm-role-in-uc2">7.5 LLM role in UC2</h3>
+<p>The LLM is used for <strong>narrative drafting</strong>, not for inventing findings.</p>
+<p>Prompt guidance emphasizes:</p>
+<ul>
+<li>Audit-ready language</li>
+<li>Clear distinction between facts and recommendations</li>
+<li>Grouping by control category</li>
+<li>Staying faithful to provided findings</li>
+</ul>
+<p>In local development, a <strong>Mock LLM</strong> returns deterministic draft text so the pipeline works offline.</p>
+<p>In client cloud mode, Azure OpenAI or Azure AI Foundry provides real generation.</p>
+<h3 id="76-docx-generation">7.6 DOCX generation</h3>
+<p><code>report_builder</code> creates a Word document containing:</p>
+<ul>
+<li>Report title</li>
+<li>LLM narrative</li>
+<li>Section headings</li>
+<li>Finding bullets with severity and description</li>
+</ul>
+<p>This is the artifact reviewers expect in traditional TPRA processes.</p>
+<hr />
+<h2 id="8-workflow-engine-internals">8. Workflow Engine Internals</h2>
+<p>File: <code>backend/app/agents/graph.py</code></p>
+<p>The engine is intentionally simple:</p>
+<ul>
+<li>An ordered list of named step functions</li>
+<li>Shared mutable <code>state</code> dictionary</li>
+<li>Per-step timing/status traces</li>
+<li><code>StopWorkflow</code> exception for controlled early exit</li>
+</ul>
+<p>Why a custom lightweight graph instead of a heavy orchestration framework?</p>
+<ul>
+<li>MVP clarity</li>
+<li>Easy debugging</li>
+<li>Deterministic step traces for audits/demos</li>
+<li>Enough structure to later migrate to LangGraph/Foundry orchestration if needed</li>
+</ul>
+<p>Each run can record step traces such as:</p>
+<ul>
+<li>step name</li>
+<li>status (<code>ok</code>, <code>stopped</code>, <code>error</code>)</li>
+<li>duration</li>
+<li>error message if any</li>
+</ul>
+<hr />
+<h2 id="9-domain-model-deep-dive">9. Domain Model Deep Dive</h2>
+<p>Domain models are the “nouns” of the system. Every layer should speak this language.</p>
+<h3 id="91-core-entities">9.1 Core entities</h3>
+<h4 id="workspace">Workspace</h4>
+<p>Represents one assessment engagement.</p>
+<p>Important fields:</p>
+<ul>
+<li><code>id</code></li>
+<li><code>name</code></li>
+<li><code>description</code></li>
+<li>timestamps</li>
+</ul>
+<h4 id="filerecord">FileRecord</h4>
+<p>Metadata about an uploaded or generated file.</p>
+<p>Important fields:</p>
+<ul>
+<li><code>id</code></li>
+<li><code>workspace_id</code></li>
+<li><code>filename</code></li>
+<li><code>content_type</code></li>
+<li><code>storage_key</code></li>
+<li><code>size_bytes</code></li>
+</ul>
+<h4 id="finding">Finding</h4>
+<p>Canonical security finding object.</p>
+<p>Important fields:</p>
+<ul>
+<li><code>id</code></li>
+<li><code>title</code></li>
+<li><code>description</code></li>
+<li><code>severity</code></li>
+<li><code>category</code></li>
+<li><code>source</code></li>
+<li><code>status</code> (new/valid/exception/approved/rejected)</li>
+<li><code>raw</code> original row payload</li>
+</ul>
+<h4 id="exceptionitem">ExceptionItem</h4>
+<p>Validation issue tied to a finding/field.</p>
+<h4 id="run">Run</h4>
+<p>One execution of an agent.</p>
+<p>Important fields:</p>
+<ul>
+<li><code>id</code></li>
+<li><code>workspace_id</code></li>
+<li><code>agent_type</code></li>
+<li><code>status</code> (pending/running/succeeded/failed)</li>
+<li><code>input_file_ids</code></li>
+<li><code>output_refs</code></li>
+<li><code>error</code></li>
+</ul>
+<h4 id="reviewerdecision">ReviewerDecision</h4>
+<p>Human approval/rejection record for a finding.</p>
+<h4 id="auditevent">AuditEvent</h4>
+<p>Append-only record of who did what, when, on which resource.</p>
+<h4 id="usercontext">UserContext</h4>
+<p>Authenticated user identity + role used for authorization.</p>
+<h3 id="92-enumerations">9.2 Enumerations</h3>
+<p>Enums prevent magic strings from spreading through code:</p>
+<ul>
+<li><code>RunStatus</code></li>
+<li><code>FindingStatus</code></li>
+<li><code>ApprovalLevel</code></li>
+<li><code>UserRole</code> (analyst, reviewer, admin)</li>
+<li><code>AgentType</code></li>
+<li>Provider type selectors</li>
+</ul>
+<h3 id="93-shared-schema-for-prompts-and-agents">9.3 Shared schema for prompts and agents</h3>
+<p><code>prompts/shared/tpra_schema.json</code> defines the canonical Finding/Exception JSON schema used to keep LLM outputs and application models aligned.</p>
+<hr />
+<h2 id="10-provider-registry-the-heart-of-portability">10. Provider Registry — The Heart of Portability</h2>
+<h3 id="101-concept">10.1 Concept</h3>
+<p>The Provider Registry is a dependency-injection factory.<br />
+Services and agents ask for capabilities (“store this file”, “generate text”), not for specific cloud products.</p>
+<h3 id="102-provider-interfaces">10.2 Provider interfaces</h3>
+<p>Defined in <code>backend/app/providers/base.py</code>:</p>
+<ol>
+<li><strong>StorageProvider</strong> — put/get/delete binary objects</li>
+<li><strong>MetadataProvider</strong> — upsert/get/list/delete JSON-like documents</li>
+<li><strong>LLMProvider</strong> — generate text from system/user prompts</li>
+<li><strong>AuthProvider</strong> — resolve current user context</li>
+<li><strong>DocIntelligenceProvider</strong> — extract text/structure from documents</li>
+</ol>
+<h3 id="103-local-vs-azure-mapping">10.3 Local vs Azure mapping</h3>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Local (Development Team)</th>
+<th>Azure (Client DaVinci)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Storage</td>
+<td>Local filesystem under <code>.data/</code></td>
+<td>Azure Blob Storage</td>
+</tr>
+<tr>
+<td>Metadata</td>
+<td>SQLite file DB</td>
+<td>Cosmos DB</td>
+</tr>
+<tr>
+<td>LLM</td>
+<td>Mock deterministic responder</td>
+<td>Azure OpenAI or AI Foundry</td>
+</tr>
+<tr>
+<td>Auth</td>
+<td>Trust <code>X-User-*</code> headers</td>
+<td>Client SSO / OIDC JWT</td>
+</tr>
+<tr>
+<td>Doc Intel</td>
+<td>Local/basic parsers</td>
+<td>Azure Document Intelligence</td>
+</tr>
+</tbody>
+</table>
+<h3 id="104-configuration-switch">10.4 Configuration switch</h3>
+<p>Providers are selected from:</p>
+<ol>
+<li>Environment variables (highest priority)</li>
+<li><code>backend/config.yaml</code></li>
+<li>Defaults</li>
+</ol>
+<p>Examples:</p>
+<ul>
+<li><code>STORAGE_PROVIDER=local|azure</code></li>
+<li><code>METADATA_PROVIDER=sqlite|cosmos</code></li>
+<li><code>LLM_PROVIDER=mock|azure_openai|foundry</code></li>
+<li><code>AUTH_PROVIDER=dev|client_sso</code></li>
+<li><code>DOC_INTEL_PROVIDER=local|azure</code></li>
+</ul>
+<p>There are ready presets:</p>
+<ul>
+<li><code>.env.local.example</code> for local mock mode</li>
+<li><code>.env.client.example</code> for client cloud mode</li>
+<li><code>backend/config.client.example.yaml</code> for DaVinci-oriented config</li>
+</ul>
+<h3 id="105-why-stubs-exist-for-azure-providers">10.5 Why stubs exist for Azure providers</h3>
+<p>Azure adapters may be stubbed or partially implemented in the MVP so local development stays lightweight. The interfaces and wiring are already in place, which is the important architectural commitment.</p>
+<hr />
+<h2 id="11-services-and-authorization">11. Services and Authorization</h2>
+<h3 id="111-service-responsibilities">11.1 Service responsibilities</h3>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workspace_service</code></td>
+<td>Create/list/get/delete workspaces</td>
+</tr>
+<tr>
+<td><code>file_service</code></td>
+<td>Upload/list/download files via storage + metadata</td>
+</tr>
+<tr>
+<td><code>agent_service</code></td>
+<td>Create runs, invoke UC1/UC2, persist outputs</td>
+</tr>
+<tr>
+<td><code>reviewer_log_service</code></td>
+<td>Record and list reviewer decisions</td>
+</tr>
+<tr>
+<td><code>authz</code></td>
+<td>Role permission checks</td>
+</tr>
+<tr>
+<td>Audit recording</td>
+<td>Often embedded via audit repository/service calls</td>
+</tr>
+</tbody>
+</table>
+<h3 id="112-role-based-access-control-rbac">11.2 Role-based access control (RBAC)</h3>
+<p>Typical permission model:</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Can do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Analyst</td>
+<td>Create workspaces, upload files, run agents, read data</td>
+</tr>
+<tr>
+<td>Reviewer</td>
+<td>Everything analyst can do + record approval decisions</td>
+</tr>
+<tr>
+<td>Admin</td>
+<td>Full access including delete and broad audit operations</td>
+</tr>
+</tbody>
+</table>
+<p>Authorization failures raise structured auth errors rather than silently continuing.</p>
+<h3 id="113-dev-auth-vs-sso">11.3 Dev auth vs SSO</h3>
+<p><strong>Dev auth</strong> makes local testing easy:</p>
+<ul>
+<li>Frontend sends headers like <code>X-User-Id</code>, <code>X-User-Name</code>, <code>X-User-Role</code></li>
+<li>Backend trusts them in local mode</li>
+</ul>
+<p><strong>Client SSO</strong> is the production path:</p>
+<ul>
+<li>UI sends bearer JWT</li>
+<li>Backend validates issuer/audience/claims</li>
+<li>Role mapping comes from token claims or directory groups</li>
+</ul>
+<p>Never use dev auth in production.</p>
+<hr />
+<h2 id="12-api-surface-how-the-ui-and-integrations-talk-to-the-backend">12. API Surface (How the UI and Integrations Talk to the Backend)</h2>
+<p>The API is FastAPI-based and self-documented at <code>/docs</code> when running locally.</p>
+<h3 id="121-key-endpoints">12.1 Key endpoints</h3>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Method / Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Health</td>
+<td><code>GET /api/health</code></td>
+<td>Liveness and provider summary</td>
+</tr>
+<tr>
+<td>Catalog</td>
+<td><code>GET /api/catalog</code> (or <code>/api/v1/catalog</code>)</td>
+<td>List available agents and required inputs</td>
+</tr>
+<tr>
+<td>Workspaces</td>
+<td><code>GET/POST /api/workspaces</code></td>
+<td>List/create engagements</td>
+</tr>
+<tr>
+<td>Workspace</td>
+<td><code>GET/DELETE /api/workspaces/{id}</code></td>
+<td>Fetch/delete one workspace</td>
+</tr>
+<tr>
+<td>Files upload</td>
+<td><code>POST /api/files/upload</code></td>
+<td>Upload findings or supporting files</td>
+</tr>
+<tr>
+<td>Files list</td>
+<td><code>GET /api/files/workspace/{id}</code></td>
+<td>List files in a workspace</td>
+</tr>
+<tr>
+<td>Files download</td>
+<td><code>GET /api/files/{id}/download</code></td>
+<td>Download a stored file</td>
+</tr>
+<tr>
+<td>Agent runs</td>
+<td><code>POST /api/agents/runs</code></td>
+<td>Start UC1 or UC2</td>
+</tr>
+<tr>
+<td>Run status</td>
+<td><code>GET /api/agents/runs/{id}</code></td>
+<td>Fetch one run</td>
+</tr>
+<tr>
+<td>Runs list</td>
+<td><code>GET /api/agents/workspace/{id}/runs</code></td>
+<td>List runs for workspace</td>
+</tr>
+<tr>
+<td>Reviewer log</td>
+<td><code>POST /api/reviewer-log</code></td>
+<td>Record decision</td>
+</tr>
+<tr>
+<td>Reviewer list</td>
+<td><code>GET /api/reviewer-log/workspace/{id}</code></td>
+<td>List decisions</td>
+</tr>
+<tr>
+<td>Audit</td>
+<td><code>GET /api/audit/workspace/{id}</code></td>
+<td>Immutable activity history</td>
+</tr>
+</tbody>
+</table>
+<p>Exact prefixing may be <code>/api</code> or <code>/api/v1</code> depending on router wiring; use OpenAPI docs as the live source of truth.</p>
+<h3 id="122-correlation-ids">12.2 Correlation IDs</h3>
+<p>Each request can carry or receive an <code>x-correlation-id</code> header. Logs include this ID so a single user action can be traced across service boundaries.</p>
+<h3 id="123-error-shape">12.3 Error shape</h3>
+<p>Custom exceptions (<code>TPRAError</code>, validation/auth/not-found variants) are converted into structured JSON errors with machine-readable codes.</p>
+<hr />
+<h2 id="13-frontend-deep-dive">13. Frontend Deep Dive</h2>
+<h3 id="131-stack">13.1 Stack</h3>
+<ul>
+<li>React 18</li>
+<li>TypeScript</li>
+<li>Vite 5</li>
+<li>Simple fetch-based API client</li>
+<li>Nginx packaging for container deployment</li>
+</ul>
+<h3 id="132-main-ui-capabilities-frontendsrcapptsx">13.2 Main UI capabilities (<code>frontend/src/App.tsx</code>)</h3>
+<p>The MVP UI focuses on operator workflow clarity:</p>
+<ol>
+<li>Create/select a workspace</li>
+<li>Upload findings files</li>
+<li>Run UC1</li>
+<li>Run UC2</li>
+<li>Inspect run statuses and output references</li>
+<li>View audit trail</li>
+<li>Switch persona/role (analyst/reviewer/admin) for local testing</li>
+</ol>
+<h3 id="133-api-client-behavior">13.3 API client behavior</h3>
+<p><code>frontend/src/api/client.ts</code>:</p>
+<ul>
+<li>Prefixes requests with configured API base URL</li>
+<li>Injects dev auth headers in local mode</li>
+<li>Can later inject SSO bearer tokens in client mode</li>
+</ul>
+<h3 id="134-local-proxying">13.4 Local proxying</h3>
+<p>Vite dev server proxies <code>/api</code> to <code>localhost:8000</code>, so the UI and API feel like one app during development.</p>
+<p>In Docker/production UI image, Nginx serves the SPA and reverse-proxies <code>/api</code> to the backend service.</p>
+<hr />
+<h2 id="14-prompts-and-foundry-configuration">14. Prompts and Foundry Configuration</h2>
+<h3 id="141-why-prompts-are-stored-in-git">14.1 Why prompts are stored in Git</h3>
+<p>Prompts are first-class product assets:</p>
+<ul>
+<li>Versioned (<code>v1/</code>, future <code>v2/</code>)</li>
+<li>Reviewable in pull requests</li>
+<li>Deployable as an immutable Blob mirror</li>
+<li>Separated from application code so prompt iteration is controlled</li>
+</ul>
+<h3 id="142-prompt-layout">14.2 Prompt layout</h3>
+<pre><code class="language-text">prompts/
+  shared/tpra_schema.json
+  structured_findings/v1/
+    system.md
+    user.md
+    output_schema.json
+  draft_report/v1/
+    system.md
+    user.md
+</code></pre>
+<h3 id="143-foundry-registry">14.3 Foundry registry</h3>
+<p><code>foundry/agents.yaml</code> is the source of truth for:</p>
+<ul>
+<li>Agent IDs</li>
+<li>Names/descriptions</li>
+<li>Capabilities</li>
+<li>Required inputs</li>
+<li>Model designation</li>
+<li>Prompt directory references</li>
+</ul>
+<p>Additional files:</p>
+<ul>
+<li><code>foundry/structured-findings-agent.yaml</code></li>
+<li><code>foundry/draft-report-agent.yaml</code></li>
+</ul>
+<p>These support Azure AI Foundry deployment definitions (model, temperature, max tokens, tools).</p>
+<hr />
+<h2 id="15-repository-map-file-by-file-understanding">15. Repository Map (File-by-File Understanding)</h2>
+<h3 id="151-root-files">15.1 Root files</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Why it exists</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.gitignore</code></td>
+<td>Prevent committing secrets, venv, node_modules, runtime data</td>
+</tr>
+<tr>
+<td><code>.env.example</code></td>
+<td>Documents all supported environment variables</td>
+</tr>
+<tr>
+<td><code>.env.local.example</code></td>
+<td>One-step local preset</td>
+</tr>
+<tr>
+<td><code>.env.client.example</code></td>
+<td>Client DaVinci preset</td>
+</tr>
+<tr>
+<td><code>docker-compose.yml</code></td>
+<td>One-command local full stack</td>
+</tr>
+<tr>
+<td><code>README.md</code></td>
+<td>Quickstart and architecture summary</td>
+</tr>
+</tbody>
+</table>
+<h3 id="152-backend-structure">15.2 Backend structure</h3>
+<pre><code class="language-text">backend/
+  app/
+    main.py
+    core/
+    domain/
+    schemas/
+    api/
+    services/
+    repositories/
+    providers/
+    agents/
+  tests/
+  config.yaml
+  requirements.txt
+  requirements-dev.txt
+  Dockerfile
+</code></pre>
+<h3 id="153-frontend-structure">15.3 Frontend structure</h3>
+<pre><code class="language-text">frontend/
+  src/
+    main.tsx
+    App.tsx
+    api/client.ts
+    config.ts
+    styles.css
+  index.html
+  vite.config.ts
+  package.json
+  Dockerfile
+  nginx.conf
+</code></pre>
+<h3 id="154-ops-delivery-structure">15.4 Ops / delivery structure</h3>
+<pre><code class="language-text">scripts/                 deploy helpers + prompt upload + foundry bootstrap
+infra/bicep/             Azure infrastructure as code
+azure-pipelines/         multi-stage CI/CD
+docs/                    architecture, migration, this NotebookLM guide
+</code></pre>
+<hr />
+<h2 id="16-infrastructure-and-cicd">16. Infrastructure and CI/CD</h2>
+<h3 id="161-bicep-infrastructure">16.1 Bicep infrastructure</h3>
+<p><code>infra/bicep/main.bicep</code> provisions core Azure building blocks such as:</p>
+<ul>
+<li>Storage Account (TLS 1.2)</li>
+<li>Cosmos DB (session consistency)</li>
+<li>Key Vault (RBAC + soft delete)</li>
+<li>Log Analytics</li>
+<li>Application Insights</li>
+</ul>
+<p>Stage parameter files:</p>
+<ul>
+<li><code>dev.parameters.json</code></li>
+<li><code>qa.parameters.json</code></li>
+<li><code>uat.parameters.json</code></li>
+<li><code>prod.parameters.json</code></li>
+</ul>
+<h3 id="162-deployment-scripts">16.2 Deployment scripts</h3>
+<ul>
+<li><code>scripts/_deploy_common.sh</code> shared routine</li>
+<li><code>scripts/deploy_dev.sh</code></li>
+<li><code>scripts/deploy_qa.sh</code></li>
+<li><code>scripts/deploy_uat.sh</code></li>
+<li><code>scripts/deploy_prod.sh</code></li>
+<li><code>scripts/upload_prompts.py</code></li>
+<li><code>scripts/create_foundry_agents.py</code></li>
+</ul>
+<h3 id="163-azure-pipelines-flow">16.3 Azure Pipelines flow</h3>
+<p>Typical progressive delivery:</p>
+<ol>
+<li>Test (pytest)</li>
+<li>Build Docker images</li>
+<li>Deploy DEV</li>
+<li>Deploy QA</li>
+<li>Deploy UAT (manual approval gates)</li>
+</ol>
+<p>This reduces risk by promoting the same artifact style through environments.</p>
+<hr />
+<h2 id="17-local-development-guide">17. Local Development Guide</h2>
+<h3 id="171-backend-quickstart">17.1 Backend quickstart</h3>
+<pre><code class="language-bash">cd Dev/tpra-agentic-mvp
+cp .env.local.example .env
+cd backend
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload --app-dir .
+</code></pre>
+<p>Open API docs: <code>http://localhost:8000/docs</code></p>
+<h3 id="172-frontend-quickstart">17.2 Frontend quickstart</h3>
+<pre><code class="language-bash">cd frontend
+npm install
+npm run dev
+</code></pre>
+<p>Open UI: <code>http://localhost:5173</code></p>
+<h3 id="173-docker-quickstart">17.3 Docker quickstart</h3>
+<pre><code class="language-bash">cp .env.local.example .env
+docker compose up --build
+</code></pre>
+<h3 id="174-tests">17.4 Tests</h3>
+<pre><code class="language-bash">cd backend
+source .venv/bin/activate
+pytest
+</code></pre>
+<p>Expected coverage includes:</p>
+<ul>
+<li>Parser unit tests</li>
+<li>Normalizer unit tests</li>
+<li>Validator unit tests</li>
+<li>Agent registry loading tests</li>
+<li>UC1 → UC2 integration test with mock providers</li>
+</ul>
+<h3 id="175-demo-smoke-path">17.5 Demo / smoke path</h3>
+<p>A smoke script or demo flow can:</p>
+<ol>
+<li>Create workspace</li>
+<li>Upload sample findings CSV/JSON</li>
+<li>Run UC1</li>
+<li>Run UC2 using UC1 package output</li>
+<li>Download generated artifacts</li>
+</ol>
+<p>Sample fixtures live under <code>backend/tests/fixtures/</code>.</p>
+<hr />
+<h2 id="18-migration-path-development-team-local-client-davinci">18. Migration Path: Development Team Local → Client DaVinci</h2>
+<ol>
+<li>Copy <code>.env.client.example</code> to <code>.env</code> and fill real Azure/OIDC values.</li>
+<li>Switch <code>backend/config.yaml</code> providers to Azure (or use <code>config.client.example.yaml</code>).</li>
+<li>Provision Azure resources with Bicep.</li>
+<li>Publish prompts to Blob using <code>upload_prompts.py</code>.</li>
+<li>Create/update Foundry agents using <code>create_foundry_agents.py</code>.</li>
+<li>Replace dev auth with Client SSO JWT validation.</li>
+<li>Deploy through pipeline stages (DEV → QA → UAT → PROD).</li>
+<li>Validate:</li>
+<li>file upload/download via Blob</li>
+<li>metadata persistence in Cosmos</li>
+<li>real LLM draft quality</li>
+<li>SSO login and role mapping</li>
+<li>audit completeness</li>
+</ol>
+<hr />
+<h2 id="19-security-trust-and-compliance-considerations">19. Security, Trust, and Compliance Considerations</h2>
+<h3 id="191-why-audit-events-matter">19.1 Why audit events matter</h3>
+<p>TPRA evidence often supports risk acceptance and audit inquiries. The platform records:</p>
+<ul>
+<li>actor</li>
+<li>action</li>
+<li>resource type/id</li>
+<li>workspace</li>
+<li>timestamp</li>
+<li>details payload</li>
+</ul>
+<h3 id="192-separation-of-duties">19.2 Separation of duties</h3>
+<ul>
+<li>Analysts prepare and run packages</li>
+<li>Reviewers approve findings</li>
+<li>Admins govern the environment</li>
+</ul>
+<h3 id="193-data-handling-caution">19.3 Data handling caution</h3>
+<p>Findings may contain sensitive security weaknesses. In production:</p>
+<ul>
+<li>Use private storage accounts</li>
+<li>Restrict Cosmos/Blob network access as required</li>
+<li>Keep secrets in Key Vault</li>
+<li>Avoid putting secrets in Git or notebooks</li>
+<li>Use least-privilege managed identities where possible</li>
+</ul>
+<h3 id="194-prompt-injection-awareness">19.4 Prompt injection awareness</h3>
+<p>UC2 should treat uploaded finding text as untrusted content. System prompts must instruct the model to <strong>use findings as data</strong>, not as instructions that can override report policy.</p>
+<hr />
+<h2 id="20-design-decisions-and-trade-offs">20. Design Decisions and Trade-offs</h2>
+<h3 id="decision-provider-abstraction-first">Decision: Provider abstraction first</h3>
+<p><strong>Benefit:</strong> same codebase for local and Azure.<br />
+<strong>Trade-off:</strong> more interfaces/boilerplate early.</p>
+<h3 id="decision-deterministic-uc1-generative-uc2">Decision: Deterministic UC1, generative UC2</h3>
+<p><strong>Benefit:</strong> reliability where it matters most (structure/validation), creativity where it helps (narrative).<br />
+<strong>Trade-off:</strong> UC2 quality depends on prompt/model tuning.</p>
+<h3 id="decision-simple-sequential-graphs">Decision: Simple sequential graphs</h3>
+<p><strong>Benefit:</strong> easy to reason about and demo.<br />
+<strong>Trade-off:</strong> not yet a full durable workflow orchestrator.</p>
+<h3 id="decision-workspace-centric-model">Decision: Workspace-centric model</h3>
+<p><strong>Benefit:</strong> natural engagement boundary for files/runs/audit.<br />
+<strong>Trade-off:</strong> cross-engagement analytics needs future design.</p>
+<h3 id="decision-human-approval-gate">Decision: Human approval gate</h3>
+<p><strong>Benefit:</strong> trust and compliance.<br />
+<strong>Trade-off:</strong> not fully autonomous; throughput depends on reviewers.</p>
+<hr />
+<h2 id="21-glossary">21. Glossary</h2>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TPRA</td>
+<td>Third Party Risk Assessment</td>
+</tr>
+<tr>
+<td>UC1</td>
+<td>Use Case 1 — Structured Findings Package Agent</td>
+</tr>
+<tr>
+<td>UC2</td>
+<td>Use Case 2 — Draft Report Generation Agent</td>
+</tr>
+<tr>
+<td>Provider</td>
+<td>Swappable infrastructure adapter</td>
+</tr>
+<tr>
+<td>Registry</td>
+<td>Factory that selects providers from config</td>
+</tr>
+<tr>
+<td>Workspace</td>
+<td>One TPRA engagement container</td>
+</tr>
+<tr>
+<td>Finding</td>
+<td>Canonical normalized risk/issue record</td>
+</tr>
+<tr>
+<td>Exception</td>
+<td>Validation problem with a finding/field</td>
+</tr>
+<tr>
+<td>Reviewer Log</td>
+<td>Human decision records on findings</td>
+</tr>
+<tr>
+<td>Foundry</td>
+<td>Azure AI Foundry agent hosting/deployment concept</td>
+</tr>
+<tr>
+<td>DaVinci</td>
+<td>Client cloud target environment referenced by migration docs</td>
+</tr>
+<tr>
+<td>HITL</td>
+<td>Human-in-the-loop</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="22-suggested-notebooklm-study-questions">22. Suggested NotebookLM Study Questions</h2>
+<p>Use these prompts after uploading this document:</p>
+<ol>
+<li>Explain the full UC1 → human review → UC2 lifecycle in simple language.</li>
+<li>What exactly changes when moving from local mock mode to Azure client mode?</li>
+<li>Create a beginner onboarding checklist for a new developer on this repo.</li>
+<li>Compare responsibilities of services vs repositories vs providers.</li>
+<li>What outputs does UC1 produce and why does each output exist?</li>
+<li>Where are prompts stored and why are they versioned?</li>
+<li>Generate a quiz to test my understanding of the architecture layers.</li>
+<li>What security controls are already implied by the design?</li>
+<li>Draft a stakeholder briefing for a cybersecurity leader (non-technical).</li>
+<li>Identify the top five extension points for the next MVP iteration.</li>
+</ol>
+<hr />
+<h2 id="23-practical-mental-model-one-paragraph">23. Practical Mental Model (One Paragraph)</h2>
+<p>Think of this system as a <strong>TPRA workbench</strong>: a workspace holds the evidence for one vendor assessment; UC1 is the cleanup-and-packaging specialist; a human reviewer is the quality gate; UC2 is the report-writing assistant; and the provider registry is the power adapter that lets the same workbench plug into a laptop (local mocks) or the client’s Azure cloud without rebuilding the tools.</p>
+<hr />
+<h2 id="24-source-index-for-further-reading-in-the-repo">24. Source Index for Further Reading in the Repo</h2>
+<ul>
+<li><code>README.md</code> — quickstart</li>
+<li><code>docs/ARCHITECTURE.md</code> — concise architecture notes</li>
+<li><code>docs/MIGRATION.md</code> — local-to-cloud migration steps</li>
+<li><code>docs/Agent_TPRA_Overview.pdf</code> — original repository guide PDF</li>
+<li><code>foundry/agents.yaml</code> — agent catalog source of truth</li>
+<li><code>backend/config.yaml</code> — provider/config switchboard</li>
+<li><code>backend/app/agents/structured_findings/graph.py</code> — UC1 implementation</li>
+<li><code>backend/app/agents/draft_report/graph.py</code> — UC2 implementation</li>
+<li><code>backend/app/providers/registry.py</code> — environment portability core</li>
+<li><code>frontend/src/App.tsx</code> — operator UI workflow</li>
+</ul>
+<hr />
+<h2 id="25-closing-notes-for-learners">25. Closing Notes for Learners</h2>
+<p>If you only remember five things, remember these:</p>
+<ol>
+<li><strong>Two agents, one human gate:</strong> UC1 structures, humans approve, UC2 drafts.</li>
+<li><strong>Workspace is the container</strong> for everything in an engagement.</li>
+<li><strong>Providers make the app portable</strong> between laptop and Azure.</li>
+<li><strong>Domain models are the shared language</strong> across API, services, and agents.</li>
+<li><strong>Auditability and reviewability are features</strong>, not afterthoughts.</li>
+</ol>
+<p>This document is intentionally detailed so NotebookLM can answer both high-level stakeholder questions and deep engineering questions from the same source.</p></body></html>
